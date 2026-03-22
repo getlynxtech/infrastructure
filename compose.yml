@@ -1,0 +1,113 @@
+name: lynx
+
+services:
+  nginx:
+    restart: unless-stopped
+    build:
+      context: docker/nginx
+      dockerfile: Dockerfile
+    healthcheck:
+      test: "curl -f http://localhost:80 || exit 1"
+      interval: 5s
+    depends_on:
+      - client
+      - server
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - internal
+    volumes:
+      - ./docker/nginx/production/conf.d:/etc/nginx/conf.d:ro
+      - ./docker/certbot/data/conf:/etc/letsencrypt
+      - ./docker/certbot/data/www:/var/www/certbot
+
+  certbot:
+    restart: unless-stopped
+    build:
+      context: docker/certbot
+      dockerfile: Dockerfile
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    volumes:
+      - ./docker/certbot/data/cred:/etc/certbot/data
+      - ./docker/certbot/data/conf:/etc/letsencrypt
+      - ./docker/certbot/data/www:/var/www/certbot
+
+  server:
+    restart: unless-stopped
+    image: ghcr.io/getlynxtech/lynx/server:latest
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: ${DB_HOST:-db}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-main}
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:-test}
+      BASIC_AUTH_PASSWORD: ${BASIC_AUTH_PASSWORD:-test}
+    networks:
+      - internal
+
+  client:
+    restart: unless-stopped
+    image: ghcr.io/getlynxtech/lynx/client:latest
+    depends_on:
+      auth-db:
+        condition: service_healthy
+    environment:
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-HI2YJBqHK0Zz0ibFf564RgKPCFlsBfO9}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://dev.getlynx.tech}
+      AUTH_DATABASE_URL: ${AUTH_DATABASE_URL:-postgres://postgres:postgres@auth-db:5432/auth_db}
+      SERVER_BASE_URL: ${SERVER_BASE_URL:-server:9090}
+      SERVER_BASIC_AUTH_USER: ${SERVER_BASIC_AUTH_USER:-test}
+      SERVER_BASIC_AUTH_PASSWORD: ${SERVER_BASIC_AUTH_PASSWORD:-test}
+    networks:
+      - internal
+
+  db:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: docker/postgres/Dockerfile
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-main}
+    healthcheck:
+      test: [ "CMD-SHELL", "sh -c 'pg_isready -U postgres -d main'" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - internal
+
+  auth-db:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: docker/postgres/Dockerfile
+    environment:
+      POSTGRES_USER: ${AUTH_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${AUTH_POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${AUTH_POSTGRES_DB:-auth_db}
+    healthcheck:
+      test: [ "CMD-SHELL", "sh -c 'pg_isready -U postgres -d auth_db'" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    volumes:
+      - auth-db-data:/var/lib/postgresql/data
+    networks:
+      - internal
+
+volumes:
+  node-modules-client:
+  auth-db-data:
+  db-data:
+
+networks:
+  internal:

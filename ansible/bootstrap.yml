@@ -1,0 +1,210 @@
+- name: Install Dependencies
+  hosts: "{{ target_host }}"
+  become: true
+  tasks:
+    - name: Install aptitude
+      apt:
+        name: aptitude
+        state: latest
+        update_cache: true
+
+    - name: Install required system packages
+      apt:
+        pkg:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+          - python3-pip
+          - virtualenv
+          - python3-setuptools
+        state: latest
+        update_cache: true
+
+    - name: Add Docker GPG apt Key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker Repository
+      apt_repository:
+        repo: deb https://download.docker.com/linux/ubuntu focal stable
+        state: present
+
+    - name: Update apt and install docker-ce
+      apt:
+        name: docker-ce
+        state: latest
+        update_cache: true
+
+    - name: Install Docker module for Python
+      apt:
+        name: python3-docker
+        state: present
+      become: true
+
+    - name: Start docker daemon
+      systemd:
+        name: docker
+        state: started
+
+- name: Configure Floating IP
+  hosts: "{{ target_host }}"
+  become: true
+  gather_facts: false
+  vars:
+    floating_ip: "{{ floating_ip }}"
+
+  tasks:
+    - name: Add floating IP to eth0
+      ansible.builtin.command: ip addr add {{ floating_ip }}/32 dev eth0
+      ignore_errors: yes
+
+    - name: Persist floating IP
+      copy:
+        dest: /etc/netplan/99-floating-ip.yaml
+        content: |
+          network:
+            version: 2
+            ethernets:
+              eth0:
+                addresses:
+                  - {{ floating_ip }}/32
+      notify:
+        - Apply netplan
+
+  handlers:
+    - name: Apply netplan
+      command: netplan apply
+      become: true
+
+- name: Create new Linux User
+  hosts: "{{ target_host }}"
+  become: yes
+  tasks:
+    - name: Create new Linux User
+      user:
+        name: ubuntu
+        groups: adm,docker
+        append: yes
+
+    - name: Reconnect to server session
+      meta: reset_connection
+
+- name: Setup and Clone Private Repository
+  hosts: "{{ target_host }}"
+  become: yes
+  vars:
+    github_token: "{{ lookup('env', 'GITHUB_TOKEN') }}"
+  tasks:
+    - name: Ensure target directory exists
+      file:
+        path: /home/ubuntu/getlynxtech
+        state: directory
+        mode: '0755'
+        owner: ubuntu
+        group: ubuntu
+
+    - name: Clone private repository
+      git:
+        repo: https://{{ github_token }}@github.com/getlynxtech/infrastructure.git
+        dest: /home/ubuntu/getlynxtech/infrastructure
+        clone: yes
+        update: yes
+      become_user: ubuntu
+
+- name: Initialize Let's Encrypt
+  hosts: "{{ target_host }}"
+  become: yes
+  vars:
+    domains:
+      - getlynx.tech
+      - api.getlynx.tech
+      - www.getlynx.tech
+      - www.api.getlynx.tech
+    rsa_key_size: 4096
+    data_path: /home/ubuntu/getlynxtech/infrastructure/docker
+    email: ""
+    staging: false
+    hcloud_token: "{{ lookup('env','HCLOUD_TOKEN') }}"
+  tasks:
+    - name: Ensure mounted directories exist
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0777'
+      loop:
+        - "{{ data_path }}/certbot/data/conf"
+        - "{{ data_path }}/certbot/data/conf/live"
+        - "{{ data_path }}/certbot/data/cred"
+
+    - name: Download recommended TLS parameters
+      get_url:
+        url: "{{ item.url }}"
+        dest: "{{ data_path }}/certbot/data/conf/{{ item.dest }}"
+        mode: '0644'
+      loop:
+        - { url: "https://raw.githubusercontent.com/certbot/certbot/master/certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf", dest: "options-ssl-nginx.conf" }
+        - { url: "https://raw.githubusercontent.com/certbot/certbot/master/certbot/certbot/ssl-dhparams.pem", dest: "ssl-dhparams.pem" }
+
+    - name: Create Hetzner credentials file
+      copy:
+        dest: "{{ data_path }}/certbot/data/cred/hcloud.ini"
+        content: "dns_hetzner_cloud_api_token = {{ hcloud_token }}"
+        mode: '0644'
+
+    - name: Request DNS-01 Let's Encrypt certificate
+      shell: |
+        docker compose -f compose.{{ env }}.yml run --rm --remove-orphans --entrypoint "\
+          certbot certonly \
+            --authenticator dns-hetzner-cloud \
+            --dns-hetzner-cloud-credentials /etc/certbot/data/hcloud.ini \
+            -d {{ domains | join(' -d ') }} \
+            {% if email != '' %} --email {{ email }} {% else %} --register-unsafely-without-email {% endif %} \
+            {% if staging %} --staging {% endif %} \
+            --expand --agree-tos --rsa-key-size {{ rsa_key_size }} --non-interactive" certbot
+      args:
+        chdir: /home/ubuntu/getlynxtech/infrastructure
+      environment:
+        HCLOUD_TOKEN: "{{ hcloud_token }}"
+
+- name: Run Migrations
+  hosts: "{{ target_host }}"
+  vars:
+    ghcr_username: getlynxtech
+    ghcr_token: "{{ lookup('env', 'GITHUB_TOKEN') }}"
+  tasks:
+    - name: Login to GHCR
+      community.docker.docker_login:
+        registry_url: ghcr.io
+        username: "{{ ghcr_username }}"
+        password: "{{ ghcr_token }}"
+
+    - name: Start infrastructure services
+      community.docker.docker_compose_v2:
+        project_src: /home/ubuntu/getlynxtech/infrastructure
+        files: "compose.{{ env }}.yml"
+        services:
+          - db
+          - auth-db
+
+    - name: Run client migrations
+      ansible.builtin.command: >
+        docker compose
+        -f /home/ubuntu/getlynxtech/infrastructure/compose.{{ env }}.yml
+        run --rm client npm run drizzle:migrate
+
+    - name: Run server migrations
+      ansible.builtin.command: >
+        docker compose
+        -f /home/ubuntu/getlynxtech/infrastructure/compose.{{ env }}.yml
+        run --rm --entrypoint "goose up" server
+
+- name: Start application services
+  hosts: "{{ target_host }}"
+  tasks:
+    - name: Start containers
+      community.docker.docker_compose_v2:
+        project_src: /home/ubuntu/getlynxtech/infrastructure
+        files: "compose.{{ env }}.yml"
+      register: output

@@ -1,0 +1,67 @@
+- name: Update repository
+  hosts: "{{ target_host }}"
+  become: yes
+  vars:
+    github_token: "{{ lookup('env', 'GITHUB_TOKEN') }}"
+  tasks:
+    - name: Pull latest changes
+      git:
+        repo: https://{{ github_token }}@github.com/getlynxtech/infrastructure.git
+        dest: /home/ubuntu/getlynxtech/infrastructure
+        update: yes
+        force: yes
+      become_user: ubuntu
+
+- name: Create .env file
+  hosts: "{{ target_host }}"
+  tasks:
+    - name: Create .env file
+      ansible.builtin.copy:
+        dest: /home/ubuntu/getlynxtech/infrastructure/.env
+        content: |
+          HCLOUD_TOKEN={{ lookup('env', 'CLUSTERS_HCLOUD_TOKEN') }}
+        owner: ubuntu
+        group: ubuntu
+
+- name: Pull latest images
+  hosts: "{{ target_host }}"
+  vars:
+    ghcr_username: getlynxtech
+    ghcr_token: "{{ lookup('env', 'GITHUB_TOKEN') }}"
+  tasks:
+    - name: Login to GHCR
+      community.docker.docker_login:
+        registry_url: ghcr.io
+        username: "{{ ghcr_username }}"
+        password: "{{ ghcr_token }}"
+
+    - name: Pull latest images
+      community.docker.docker_compose_v2:
+        project_src: /home/ubuntu/getlynxtech/infrastructure
+        files: "compose.{{ env }}.yml"
+        pull: always
+        recreate: never
+
+- name: Run Migrations
+  hosts: "{{ target_host }}"
+  tasks:
+    - name: Run client migrations
+      ansible.builtin.command: >
+        docker compose
+        -f /home/ubuntu/getlynxtech/infrastructure/compose.{{ env }}.yml
+        run --rm client npm run drizzle:migrate
+
+    - name: Run server migrations
+      ansible.builtin.command: >
+        docker compose
+        -f /home/ubuntu/getlynxtech/infrastructure/compose.{{ env }}.yml
+        run --rm --entrypoint "goose up" server
+
+- name: Start application services
+  hosts: "{{ target_host }}"
+  tasks:
+    - name: Start containers
+      community.docker.docker_compose_v2:
+        project_src: /home/ubuntu/getlynxtech/infrastructure
+        files: "compose.{{ env }}.yml"
+      register: output

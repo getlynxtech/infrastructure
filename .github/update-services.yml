@@ -1,0 +1,53 @@
+name: Update Services
+on:
+  repository_dispatch:
+    types: [deploy_new_images]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        working-directory: terraform/production
+        env:
+          TF_VAR_hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_TOKEN_app_terraform_io: ${{ secrets.TF_TOKEN }}
+        run: terraform init
+
+      - name: Get Target host IP
+        working-directory: terraform/production
+        env:
+          TF_TOKEN_app_terraform_io: ${{ secrets.TF_TOKEN }}
+        run: |
+          echo "TARGET_HOST=$(terraform output -raw getlynxtech_server_ip)" >> $GITHUB_ENV
+
+      - name: Install Ansible
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install ansible
+
+      - name: Prepare SSH key
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > /tmp/key.pem
+          chmod 600 /tmp/key.pem
+
+      - name: Run Ansible
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          CLUSTERS_HCLOUD_TOKEN: ${{ secrets.CLUSTERS_HCLOUD_TOKEN }}
+        run: |
+          ansible-playbook \
+          -i "$TARGET_HOST," \
+          -u root \
+          --private-key /tmp/key.pem \
+          ansible/deploy.yml \
+          -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no'" \
+          -e "target_host=$TARGET_HOST" \
+          -e "env=production"

@@ -1,0 +1,67 @@
+name: Provision Infrastructure
+on:
+  workflow_dispatch:
+    inputs:
+      server_type:
+        description: "Hetzner Server Type"
+        required: true
+        default: "cpx22"
+        type: choice
+        options:
+          - cx23
+          - cpx22
+          - ccx33
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init & Apply
+        working-directory: terraform/production
+        env:
+          TF_VAR_hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_VAR_server_type: ${{ github.event.inputs.server_type }}
+          TF_TOKEN_app_terraform_io: ${{ secrets.TF_TOKEN }}
+        run: |
+          terraform init 
+          terraform apply -var-file="production.tfvars" -auto-approve
+
+      - name: Export Terraform outputs
+        working-directory: terraform/production
+        env:
+          TF_TOKEN_app_terraform_io: ${{ secrets.TF_TOKEN }}
+        run: |
+          echo "TARGET_HOST=$(terraform output -raw getlynxtech_server_ip)" >> $GITHUB_ENV
+          echo "FLOATING_IP=$(terraform output -raw getlynxtech_floating_ip)" >> $GITHUB_ENV
+
+      - name: Install Ansible
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install ansible
+
+      - name: Prepare SSH key
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > /tmp/key.pem
+          chmod 600 /tmp/key.pem
+
+      - name: Run Ansible
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          ansible-playbook \
+          -i "$TARGET_HOST," \
+          -u root \
+          --private-key /tmp/key.pem \
+          ansible/bootstrap.yml \
+          -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no'" \
+          -e "target_host=$TARGET_HOST" \
+          -e "floating_ip=$FLOATING_IP" \
+          -e "env=production"
