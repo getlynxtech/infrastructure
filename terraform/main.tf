@@ -2,7 +2,7 @@ terraform {
   cloud {
     organization = "getlynxtech"
     workspaces {
-      tags = ["Production"]
+      name = "Production"
     }
   }
 
