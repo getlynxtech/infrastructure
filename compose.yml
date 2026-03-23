@@ -18,7 +18,7 @@ services:
     networks:
       - internal
     volumes:
-      - ./docker/nginx/production/conf.d:/etc/nginx/conf.d:ro
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
       - ./docker/certbot/data/conf:/etc/letsencrypt
       - ./docker/certbot/data/www:/var/www/certbot
 
