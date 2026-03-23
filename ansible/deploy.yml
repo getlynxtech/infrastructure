@@ -38,7 +38,7 @@
     - name: Pull latest images
       community.docker.docker_compose_v2:
         project_src: /home/ubuntu/getlynxtech/infrastructure
-        files: "compose.{{ env }}.yml"
+        files: "compose.yml"
         pull: always
         recreate: never
 
@@ -48,13 +48,13 @@
     - name: Run client migrations
       ansible.builtin.command: >
         docker compose
-        -f /home/ubuntu/getlynxtech/infrastructure/compose.{{ env }}.yml
+        -f /home/ubuntu/getlynxtech/infrastructure/compose.yml
         run --rm client npm run drizzle:migrate
 
     - name: Run server migrations
       ansible.builtin.command: >
         docker compose
-        -f /home/ubuntu/getlynxtech/infrastructure/compose.{{ env }}.yml
+        -f /home/ubuntu/getlynxtech/infrastructure/compose.yml
         run --rm --entrypoint "goose up" server
 
 - name: Start application services
@@ -63,5 +63,5 @@
     - name: Start containers
       community.docker.docker_compose_v2:
         project_src: /home/ubuntu/getlynxtech/infrastructure
-        files: "compose.{{ env }}.yml"
+        files: "compose.yml"
       register: output

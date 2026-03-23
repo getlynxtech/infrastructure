@@ -155,7 +155,7 @@
 
     - name: Request DNS-01 Let's Encrypt certificate
       shell: |
-        docker compose -f compose.{{ env }}.yml run --rm --remove-orphans --entrypoint "\
+        docker compose -f compose.yml run --rm --remove-orphans --entrypoint "\
           certbot certonly \
             --authenticator dns-hetzner-cloud \
             --dns-hetzner-cloud-credentials /etc/certbot/data/hcloud.ini \
@@ -183,7 +183,7 @@
     - name: Start infrastructure services
       community.docker.docker_compose_v2:
         project_src: /home/ubuntu/getlynxtech/infrastructure
-        files: "compose.{{ env }}.yml"
+        files: "compose.yml"
         services:
           - db
           - auth-db
@@ -191,13 +191,13 @@
     - name: Run client migrations
       ansible.builtin.command: >
         docker compose
-        -f /home/ubuntu/getlynxtech/infrastructure/compose.{{ env }}.yml
+        -f /home/ubuntu/getlynxtech/infrastructure/compose.yml
         run --rm client npm run drizzle:migrate
 
     - name: Run server migrations
       ansible.builtin.command: >
         docker compose
-        -f /home/ubuntu/getlynxtech/infrastructure/compose.{{ env }}.yml
+        -f /home/ubuntu/getlynxtech/infrastructure/compose.yml
         run --rm --entrypoint "goose up" server
 
 - name: Start application services
@@ -206,5 +206,5 @@
     - name: Start containers
       community.docker.docker_compose_v2:
         project_src: /home/ubuntu/getlynxtech/infrastructure
-        files: "compose.{{ env }}.yml"
+        files: "compose.yml"
       register: output
