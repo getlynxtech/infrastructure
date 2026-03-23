@@ -54,7 +54,7 @@ jobs:
       - name: Run Ansible
         env:
           HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ansible-playbook \
           -i "$TARGET_HOST," \

@@ -40,7 +40,7 @@ jobs:
 
       - name: Run Ansible
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CLUSTERS_HCLOUD_TOKEN: ${{ secrets.CLUSTERS_HCLOUD_TOKEN }}
         run: |
           ansible-playbook \
