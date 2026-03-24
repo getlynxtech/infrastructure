@@ -3,6 +3,7 @@
   become: yes
   vars:
     github_token: "{{ lookup('env', 'GITHUB_TOKEN') }}"
+    mapbox_access_token: "{{ lookup('env', 'MAPBOX_ACCESS_TOKEN') }}"
   tasks:
     - name: Pull latest changes
       git:
@@ -19,7 +20,7 @@
       ansible.builtin.copy:
         dest: /home/ubuntu/getlynxtech/infrastructure/.env
         content: |
-          HCLOUD_TOKEN={{ lookup('env', 'CLUSTERS_HCLOUD_TOKEN') }}
+          MAPBOX_ACCESS_TOKEN={{ lookup('env', 'MAPBOX_ACCESS_TOKEN') }}
         owner: ubuntu
         group: ubuntu
 
