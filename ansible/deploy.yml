@@ -3,7 +3,6 @@
   become: yes
   vars:
     github_token: "{{ lookup('env', 'GITHUB_TOKEN') }}"
-    mapbox_access_token: "{{ lookup('env', 'MAPBOX_ACCESS_TOKEN') }}"
   tasks:
     - name: Pull latest changes
       git:
@@ -12,17 +11,6 @@
         update: yes
         force: yes
       become_user: ubuntu
-
-- name: Create .env file
-  hosts: "{{ target_host }}"
-  tasks:
-    - name: Create .env file
-      ansible.builtin.copy:
-        dest: /home/ubuntu/getlynxtech/infrastructure/.env
-        content: |
-          MAPBOX_ACCESS_TOKEN={{ lookup('env', 'MAPBOX_ACCESS_TOKEN') }}
-        owner: ubuntu
-        group: ubuntu
 
 - name: Pull latest images
   hosts: "{{ target_host }}"

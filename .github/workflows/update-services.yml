@@ -42,7 +42,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
           CLUSTERS_HCLOUD_TOKEN: ${{ secrets.CLUSTERS_HCLOUD_TOKEN }}
-          MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
         run: |
           ansible-playbook \
           -i "$TARGET_HOST," \
